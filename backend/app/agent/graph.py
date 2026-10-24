@@ -58,38 +58,32 @@ def out_of_scope(state: AgentState)->dict :
 import re
 
 def find_relevant_passage(state: AgentState) -> dict:
-    print('Calling find_relevant_passage function ... ')
-    question = state["question"]
-    page_content = state["url_content"]
+    import nltk 
+    import numpy as np 
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    from langchain_text_splitters import RecursiveCharacterTextSplitter 
+    text = state['url_content']
+    question = state['question']
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size = 1000,
+        chunk_overlap = 150 
+        ,separators = ["\n\n", "\n", " ",""]
+    )
+    chunks = text_splitter.split_text(text) 
+    if len(chunks) <= 3 :
+        return {'evidence' : chunks}
 
-    passages = [
-        paragraph.strip()
-        for paragraph in page_content.split("\n")
-        if paragraph.strip()
-    ]
-
-    question_words = set(re.findall(r"\b\w+\b", question.lower()))
-
-    scored_passages = []
-
-    for passage in passages:
-        passage_words = set(
-            re.findall(r"\b\w+\b", passage.lower())
-        )
-
-        common_words = question_words & passage_words
-        score = len(common_words)
-
-        if score > 0:
-            scored_passages.append((score, passage))
-
-    scored_passages.sort(key=lambda item: item[0], reverse=True)
-
-    evidence = [
-        passage for score, passage in scored_passages[:3]
-    ]
-
-    return {"evidence": evidence}
+    gemini_embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001",
+            google_api_key = os.getenv('GOOGLE_API_KEY')
+            
+        ) 
+    question_vector = np.array(gemini_embeddings.embed_query(question))
+    chunk_vectors = np.array(gemini_embeddings.embed_documents(chunks))
+    cosine_scores = np.dot(chunk_vectors,question_vector)
+    top_k_indices = np.argsort(cosine_scores)[-3 :][::-1]
+    return {'evidence' : [chunks[idx] for idx in top_k_indices]}
+ 
 graph.add_node('generate_answer',generate_answer)
 graph.add_node('out of scope',out_of_scope)
 graph.add_node('find relevant passage',find_relevant_passage)
